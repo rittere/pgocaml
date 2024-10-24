@@ -3,6 +3,7 @@ PKG csv
 PKG oUnit
 PKG re
 PKG unix
+PKG netstring
 
 S src
 S tests

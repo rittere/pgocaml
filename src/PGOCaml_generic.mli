@@ -41,6 +41,7 @@ module type THREAD = sig
   val input_binary_int : in_channel -> int t
   val really_input : in_channel -> Bytes.t -> int -> int -> unit t
   val close_in : in_channel -> unit t
+  val tls_init: in_channel -> out_channel  -> ( in_channel *  out_channel) t
 end
 
 module type PGOCAML_GENERIC =

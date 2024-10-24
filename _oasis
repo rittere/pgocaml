@@ -21,9 +21,9 @@ Flag "p4"
 Library "pgocaml"
   Path:                 src
   Modules:              PGOCaml_aux, PGOCaml, PGOCaml_generic, PGOCaml_config
-  BuildDepends:         unix, calendar, csv, re, bytes, hex
+  BuildDepends:         unix, calendar, csv, re, bytes, hex, netstring
   FindlibName:          pgocaml
-  XMETARequires:        unix, calendar, csv, re, bytes, hex
+  XMETARequires:        unix, calendar, csv, re, bytes, hex, netstring
 
 Library "pa_pgsql"
   Path:                 src
@@ -85,4 +85,3 @@ Test "pgocaml_highlevel"
 Test "test_re"
   Command:              $test_re
   WorkingDirectory:     tests
- 

@@ -41,6 +41,7 @@ module type THREAD = sig
   val input_binary_int : in_channel -> int t
   val really_input : in_channel -> Bytes.t -> int -> int -> unit t
   val close_in : in_channel -> unit t
+  val tls_init: in_channel -> out_channel  -> ( in_channel *  out_channel) t
 end
 
 module type PGOCAML_GENERIC =
@@ -351,13 +352,15 @@ type 'a t = {
   chan : out_channel;			(* Out_channel wrapping socket. *)
   mutable private_data : 'a option;
   uuid : string;			(* UUID for this connection. *)
-}
-
+  }
+          
 type 'a monad = 'a Thread.t
 
 type isolation = [ `Serializable | `Repeatable_read | `Read_committed | `Read_uncommitted ]
 
 type access = [ `Read_write | `Read_only ]
+
+            
 
 exception Error of string
 
@@ -379,6 +382,10 @@ let new_start_message () =
   let buf = Buffer.create 128 in
   buf, None
 
+let new_tls_message() =
+  let buf = Buffer.create 128 in
+  buf, None
+  
 let add_byte (buf, _) i =
   (* Deliberately throw an exception if i isn't [0..255]. *)
   Buffer.add_char buf (Char.chr i)
@@ -415,6 +422,8 @@ let add_string_no_trailing_nil (buf, _) str =
 let add_string msg str =
   add_string_no_trailing_nil msg str;
   add_byte msg 0
+
+    
 
 let send_message { chan = chan } (buf, typ) =
   (* Get the length in bytes. *)
@@ -880,6 +889,28 @@ let profile_op uuid op detail f =
 
 (*----- Connection. -----*)
 
+let start_tls  =
+  function { ichan = ichan; chan = chan; private_data = private_data; uuid= uuid } as conn -> 
+    let msg = new_tls_message () in
+    add_int32 msg 80877103l;
+    send_message conn msg >>= fun () ->
+    flush chan >>= fun () ->
+    input_char ichan >>= fun c  ->
+    let text = 
+    if c = 'S' then
+       "Now starting TLS handshake\n"
+    else
+      sprintf "TLS rejected, got %c\n" c in
+    let resultsFile = open_out "/home/exr/tmp/results.txt" in
+    fprintf resultsFile "%s" text;
+    tls_init ichan chan >>=
+      fun (ic, oc) ->
+    fprintf resultsFile "%s" "TLS init done\n";
+    close_out resultsFile;
+      return ({ichan = ic; chan = oc; private_data = private_data; uuid = uuid })
+             
+
+                 
 let pgsql_socket dir port =
   let sockaddr = sprintf "%s/.s.PGSQL.%d" dir port in
   Unix.ADDR_UNIX sockaddr
@@ -888,6 +919,9 @@ let connect ?host ?port ?user ?password ?database
     ?(unix_domain_socket_dir = PGOCaml_config.default_unix_domain_socket_dir)
     () =
   (* Get the username. *)
+  let initFile = open_out "/home/exr/tmp/init.txt" in
+  Printf.fprintf initFile "%s" "connection started\n";
+  close_out initFile;
   let user =
     match user with
     | Some user -> user
@@ -989,7 +1023,9 @@ let connect ?host ?port ?user ?password ?database
 		 private_data = None;
 		 uuid = uuid } in
 
-    (* Send the StartUpMessage.  NB. At present we do not support SSL. *)
+    (* start TLS *)
+    start_tls conn >>= fun conn -> 
+    (* Send the StartUpMessage.  *)
     let msg = new_start_message () in
     add_int32 msg 196608l;
     add_string msg "user"; add_string msg user;

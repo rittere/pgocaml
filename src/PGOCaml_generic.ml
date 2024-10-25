@@ -41,7 +41,7 @@ module type THREAD = sig
   val input_binary_int : in_channel -> int t
   val really_input : in_channel -> Bytes.t -> int -> int -> unit t
   val close_in : in_channel -> unit t
-  val tls_init: in_channel -> out_channel  -> ( in_channel *  out_channel) t
+  val tls_init: peer_name:string option -> in_channel -> out_channel  -> ( in_channel *  out_channel) t
 end
 
 module type PGOCAML_GENERIC =
@@ -903,7 +903,7 @@ let start_tls  =
       sprintf "TLS rejected, got %c\n" c in
     let resultsFile = open_out "/home/exr/tmp/results.txt" in
     fprintf resultsFile "%s" text;
-    tls_init ichan chan >>=
+    tls_init ~peer_name:(Some "exams.rittere.co.uk") ichan chan >>=
       fun (ic, oc) ->
     fprintf resultsFile "%s" "TLS init done\n";
     close_out resultsFile;

@@ -37,7 +37,7 @@ module Simple_thread = struct
   let input_binary_int = input_binary_int
   let really_input = really_input
   let close_in = close_in
-  let tls_init a b  = (a, b)
+  let tls_init ~peer_name a b  = (a, b)
 end
 
 module TLS_thread = struct
@@ -54,17 +54,23 @@ module TLS_thread = struct
     let (ic, oc) = Unix.open_connection addr in
     Netchannels.input_channel ic, new Netchannels.output_channel oc
   let output_char oc =  oc#output_char
-  let output_binary_int = output_binary_int
-  let output_string = output_string
-  let flush = flush
-  let input_char = input_char
-  let input_binary_int = input_binary_int
-  let really_input = really_input
-  let close_in = close_in
+  let output_string oc = oc#output_string
+  let output_binary_int oc n =
+    let nBytes = Netnumber.BE.int4_as_bytes (Netnumber.int4_of_int n) in
+    oc#output_bytes nBytes
+  let flush oc = oc#flush()
+  let input_char ic = ic#input_char()
+  let input_binary_int ic =
+    let nBytes = Bytes.create 4 in
+    ic#really_input nBytes 0 4;
+    Netnumber.int_of_int4 (Netnumber.BE.read_int4 nBytes 0)
+  let really_input ic = ic#really_input 
+  let close_in ic = ic#close_in()
                
   let tls_init ~peer_name ichan chan  =
+    Nettls_gnutls.init();
     let tls = Netsys_crypto.current_tls() in
-    let tls_config = Netsys_tls.create_x509_config ~trust:[`PEM_file "/etc/ssl/certs/ca-certificates.crt" ] ~peer_auth:`None tls in
+    let tls_config = Netsys_tls.create_x509_config ~trust:[`PEM_file "/etc/ssl/certs/ca-certificates.crt" ] ~peer_auth:`Required tls in
     let tls_ch =
       new Netchannels_crypto.tls_layer
       ~role:`Client
@@ -73,13 +79,12 @@ module TLS_thread = struct
         ~peer_name
         tls_config in
     let tls_endpoint = tls_ch#tls_endpoint in
-    Netsys_tls.handshake tls_endpoint;
-    (*     tls_ch # flush(); *)  (* This enforces the TLS handshake *)
+    tls_ch # flush();   (* This enforces the TLS handshake *)
     let ic = Netchannels.lift_in (`Raw (tls_ch :> Netchannels.raw_in_channel)) in
     let oc = Netchannels.lift_out (`Raw (tls_ch :> Netchannels.raw_out_channel)) in
     (ic, oc)
 end
                      
-module M = PGOCaml_generic.Make (Simple_thread)
+module M = PGOCaml_generic.Make (TLS_thread)
 
 include M

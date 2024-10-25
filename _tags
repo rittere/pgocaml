@@ -1,5 +1,5 @@
 # OASIS_START
-# DO NOT EDIT (digest: e32af4a2dde616ce7277e90e1c40c245)
+# DO NOT EDIT (digest: 095cf06579d370e26a59ebf94effc8c4)
 # Ignore VCS directories, you can use the same kind of rule outside
 # OASIS_START/STOP if you want to exclude directories that contains
 # useless stuff for the build process
@@ -25,6 +25,7 @@ true: annot, bin_annot
 <src/*.ml{,i,y}>: pkg_csv
 <src/*.ml{,i,y}>: pkg_hex
 <src/*.ml{,i,y}>: pkg_netstring
+<src/*.ml{,i,y}>: pkg_nettls-gnutls
 <src/*.ml{,i,y}>: pkg_re
 <src/*.ml{,i,y}>: pkg_unix
 <src/*.ml{,i,y}>: use_pgocaml
@@ -34,6 +35,7 @@ true: annot, bin_annot
 "utils/pgocaml_prof.byte": pkg_csv
 "utils/pgocaml_prof.byte": pkg_hex
 "utils/pgocaml_prof.byte": pkg_netstring
+"utils/pgocaml_prof.byte": pkg_nettls-gnutls
 "utils/pgocaml_prof.byte": pkg_re
 "utils/pgocaml_prof.byte": pkg_unix
 "utils/pgocaml_prof.byte": use_pgocaml
@@ -42,6 +44,7 @@ true: annot, bin_annot
 <utils/*.ml{,i,y}>: pkg_csv
 <utils/*.ml{,i,y}>: pkg_hex
 <utils/*.ml{,i,y}>: pkg_netstring
+<utils/*.ml{,i,y}>: pkg_nettls-gnutls
 <utils/*.ml{,i,y}>: pkg_re
 <utils/*.ml{,i,y}>: pkg_unix
 <utils/*.ml{,i,y}>: use_pgocaml
@@ -51,6 +54,7 @@ true: annot, bin_annot
 "tests/test_pgocaml_lowlevel.byte": pkg_csv
 "tests/test_pgocaml_lowlevel.byte": pkg_hex
 "tests/test_pgocaml_lowlevel.byte": pkg_netstring
+"tests/test_pgocaml_lowlevel.byte": pkg_nettls-gnutls
 "tests/test_pgocaml_lowlevel.byte": pkg_re
 "tests/test_pgocaml_lowlevel.byte": pkg_unix
 "tests/test_pgocaml_lowlevel.byte": use_pgocaml
@@ -62,6 +66,7 @@ true: annot, bin_annot
 "tests/test_pgocaml_highlevel.byte": pkg_csv
 "tests/test_pgocaml_highlevel.byte": pkg_hex
 "tests/test_pgocaml_highlevel.byte": pkg_netstring
+"tests/test_pgocaml_highlevel.byte": pkg_nettls-gnutls
 "tests/test_pgocaml_highlevel.byte": pkg_re
 "tests/test_pgocaml_highlevel.byte": pkg_unix
 "tests/test_pgocaml_highlevel.byte": use_pa_pgsql
@@ -75,6 +80,7 @@ true: annot, bin_annot
 "tests/test_re.byte": pkg_csv
 "tests/test_re.byte": pkg_hex
 "tests/test_re.byte": pkg_netstring
+"tests/test_re.byte": pkg_nettls-gnutls
 "tests/test_re.byte": pkg_oUnit
 "tests/test_re.byte": pkg_re
 "tests/test_re.byte": pkg_unix
@@ -84,6 +90,7 @@ true: annot, bin_annot
 <tests/*.ml{,i,y}>: pkg_csv
 <tests/*.ml{,i,y}>: pkg_hex
 <tests/*.ml{,i,y}>: pkg_netstring
+<tests/*.ml{,i,y}>: pkg_nettls-gnutls
 <tests/*.ml{,i,y}>: pkg_oUnit
 <tests/*.ml{,i,y}>: pkg_re
 <tests/*.ml{,i,y}>: pkg_unix

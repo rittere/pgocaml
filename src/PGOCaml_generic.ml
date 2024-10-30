@@ -896,17 +896,8 @@ let start_tls  =
     send_message conn msg >>= fun () ->
     flush chan >>= fun () ->
     input_char ichan >>= fun c  ->
-    let text = 
-    if c = 'S' then
-       "Now starting TLS handshake\n"
-    else
-      sprintf "TLS rejected, got %c\n" c in
-    let resultsFile = open_out "/home/exr/tmp/results.txt" in
-    fprintf resultsFile "%s" text;
     tls_init ~peer_name:(Some "exams.rittere.co.uk") ichan chan >>=
       fun (ic, oc) ->
-    fprintf resultsFile "%s" "TLS init done\n";
-    close_out resultsFile;
       return ({ichan = ic; chan = oc; private_data = private_data; uuid = uuid })
              
 
@@ -919,9 +910,6 @@ let connect ?host ?port ?user ?password ?database
     ?(unix_domain_socket_dir = PGOCaml_config.default_unix_domain_socket_dir)
     () =
   (* Get the username. *)
-  let initFile = open_out "/home/exr/tmp/init.txt" in
-  Printf.fprintf initFile "%s" "connection started\n";
-  close_out initFile;
   let user =
     match user with
     | Some user -> user

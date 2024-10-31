@@ -41,7 +41,7 @@ module type THREAD = sig
   val input_binary_int : in_channel -> int t
   val really_input : in_channel -> Bytes.t -> int -> int -> unit t
   val close_in : in_channel -> unit t
-  val tls_init: peer_name: string option -> in_channel -> out_channel  -> ( in_channel *  out_channel) t
+  val tls_init: peer_name: string option -> peer_auth:[ `None | `Optional | `Required ] -> caCertFile:string -> ichan:in_channel -> chan:out_channel  -> ( in_channel *  out_channel) t
 end
 
 module type PGOCAML_GENERIC =
@@ -68,7 +68,7 @@ exception PostgreSQL_Error of string * (char * string) list
 
 (** {6 Connection management} *)
 
-val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?unix_domain_socket_dir:string -> unit -> 'a t monad
+val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?sslmode:string -> ?peername:string -> ?caCertFile:string -> ?unix_domain_socket_dir:string -> unit -> 'a t monad
 (** Connect to the database.
 
     The normal [$PGDATABASE], etc. environment variables are available. *)

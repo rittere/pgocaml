@@ -37,7 +37,7 @@ module Simple_thread = struct
   let input_binary_int = input_binary_int
   let really_input = really_input
   let close_in = close_in
-  let tls_init ~peer_name a b  = (a, b)
+  let tls_init ~peer_name ~peer_auth ~caCertFile  ~ichan ~chan  = (ichan, chan)
 end
 
 module TLS_thread = struct
@@ -52,7 +52,7 @@ module TLS_thread = struct
   (*   type tls_endpoint_t =  Netsys_crypto_types.tls_endpoint option *)
   let open_connection addr =
     let (ic, oc) = Unix.open_connection addr in
-    Netchannels.input_channel ic, new Netchannels.output_channel oc
+    new Netchannels.input_channel ic, new Netchannels.output_channel oc
   let output_char oc =  oc#output_char
   let output_string oc = oc#output_string
   let output_binary_int oc n =
@@ -67,10 +67,11 @@ module TLS_thread = struct
   let really_input ic = ic#really_input 
   let close_in ic = ic#close_in()
                
-  let tls_init ~peer_name ichan chan  =
+  let tls_init ~peer_name  ~peer_auth ~caCertFile ~ichan ~chan  =
+    try
     Nettls_gnutls.init();
     let tls = Netsys_crypto.current_tls() in
-    let tls_config = Netsys_tls.create_x509_config ~trust:[`PEM_file "/etc/ssl/certs/ca-certificates.crt" ] ~peer_auth:`Required tls in
+    let tls_config = Netsys_tls.create_x509_config ~trust:[`PEM_file caCertFile ] ~peer_auth tls in
     let tls_ch =
       new Netchannels_crypto.tls_layer
       ~role:`Client
@@ -79,12 +80,27 @@ module TLS_thread = struct
         ~peer_name
         tls_config in
     let tls_endpoint = tls_ch#tls_endpoint in
-    tls_ch # flush();   (* This enforces the TLS handshake *)
+    Printf.fprintf stderr "TLS endpoint really created\n";
+    (try 
+       tls_ch # flush()(* This enforces the TLS handshake *)
+     with
+     |  (Netsys_types.TLS_error error) as exn ->
+         if error = "NETTLS_VERIFICATION_FAILED" then
+           if peer_auth = `Required then raise exn
+           else Printf.fprintf stderr "TLS Verification failed, ignoring\n"
+         else Printf.fprintf stderr "TLS error %s occurred\n" error);
+    Printf.fprintf stderr "TLS handshake completed\n";
     let ic = Netchannels.lift_in (`Raw (tls_ch :> Netchannels.raw_in_channel)) in
     let oc = Netchannels.lift_out (`Raw (tls_ch :> Netchannels.raw_out_channel)) in
     (ic, oc)
+  with
+  | exn -> begin
+        let msg = Printexc.to_string exn
+        and stack = Printexc.get_backtrace () in
+        Printf.eprintf "there was an error: %s%s\n" msg stack;
+      raise exn
+    end
 end
-                     
 module M = PGOCaml_generic.Make (TLS_thread)
 
 include M

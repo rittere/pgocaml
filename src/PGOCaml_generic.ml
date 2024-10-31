@@ -41,7 +41,7 @@ module type THREAD = sig
   val input_binary_int : in_channel -> int t
   val really_input : in_channel -> Bytes.t -> int -> int -> unit t
   val close_in : in_channel -> unit t
-  val tls_init: peer_name:string option -> in_channel -> out_channel  -> ( in_channel *  out_channel) t
+  val tls_init: peer_name: string option -> peer_auth:[ `None | `Optional | `Required ] -> caCertFile:string -> ichan:in_channel -> chan:out_channel  -> ( in_channel *  out_channel) t
 end
 
 module type PGOCAML_GENERIC =
@@ -67,7 +67,7 @@ exception PostgreSQL_Error of string * (char * string) list
 
 (** {6 Connection management} *)
 
-val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?unix_domain_socket_dir:string -> unit -> 'a t monad
+val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?sslmode:string -> ?peername:string -> ?caCertFile:string -> ?unix_domain_socket_dir:string -> unit -> 'a t monad
 (** Connect to the database.  The normal [$PGDATABASE], etc. environment
   * variables are available.
   *)
@@ -360,7 +360,8 @@ type isolation = [ `Serializable | `Repeatable_read | `Read_committed | `Read_un
 
 type access = [ `Read_write | `Read_only ]
 
-            
+type sslmode_t = [`Disable |  `Prefer | `Require | `Verify ]
+
 
 exception Error of string
 
@@ -889,16 +890,45 @@ let profile_op uuid op detail f =
 
 (*----- Connection. -----*)
 
-let start_tls  =
-  function { ichan = ichan; chan = chan; private_data = private_data; uuid= uuid } as conn -> 
-    let msg = new_tls_message () in
-    add_int32 msg 80877103l;
-    send_message conn msg >>= fun () ->
-    flush chan >>= fun () ->
-    input_char ichan >>= fun c  ->
-    tls_init ~peer_name:(Some "exams.rittere.co.uk") ichan chan >>=
-      fun (ic, oc) ->
-      return ({ichan = ic; chan = oc; private_data = private_data; uuid = uuid })
+let start_tls  ~sslmode ~peername ~caCertFile = function { ichan = ichan; chan = chan; private_data = private_data; uuid= uuid } as conn ->
+    catch (fun () ->                                                  
+    if sslmode = `Disable then return conn
+    else begin
+        let msg = new_tls_message () in
+        add_int32 msg 80877103l;
+        send_message conn msg >>=
+        fun () ->
+          flush chan >>=
+        fun () ->
+          input_char ichan >>=
+        (fun c  ->
+          if c = 'S' then
+            let peer_auth =
+                  if sslmode = `Verify then `Required else `Optional in
+                fprintf stderr "About to start TLS connection\n";
+              tls_init ~peer_name:peername ~peer_auth ~caCertFile ~ichan ~chan
+          else if sslmode = `Prefer then return (ichan, chan)
+          else 
+           (fail (Netsys_types.TLS_error "Server does not support TLS connection")))  >>=
+          fun (ic, oc) ->
+          fprintf stderr "tls_init successfully completed\n";
+          return ({ichan = ic; chan = oc; private_data = private_data; uuid = uuid })
+      end)
+              (function
+               | (Netsys_types.TLS_error error) as exn ->
+                  if sslmode = `Prefer then begin
+                      fprintf stderr "have TLS error in prefer\n";
+                      return conn
+                    end
+                  else begin
+                      fprintf stderr "TLS_error %s \n" error;
+                      fail exn
+                    end
+               | exn -> begin
+                   fprintf stderr "%s" "Could not establish TLS connection\n";
+                   fail exn
+                 end
+              )
              
 
                  
@@ -906,7 +936,7 @@ let pgsql_socket dir port =
   let sockaddr = sprintf "%s/.s.PGSQL.%d" dir port in
   Unix.ADDR_UNIX sockaddr
 
-let connect ?host ?port ?user ?password ?database
+let connect ?host ?port ?user ?password ?database ?sslmode ?peername ?caCertFile
     ?(unix_domain_socket_dir = PGOCaml_config.default_unix_domain_socket_dir)
     () =
   (* Get the username. *)
@@ -951,7 +981,38 @@ let connect ?host ?port ?user ?password ?database
     | Some port -> port
     | None ->
 	try int_of_string (Sys.getenv "PGPORT")
-	with Not_found | Failure _ -> 5432 in
+	with Not_found | Failure _ -> 5432  in
+
+  (* ssl connection *)  
+  let sslmode =
+    let sslmodeText = 
+      match sslmode with
+      | Some sslmodeText -> sslmodeText
+      | None ->
+         try Sys.getenv "PGSSLMODE" with
+         | Not_found -> "prefer" in
+    match sslmodeText with
+    | "disable" -> `Disable
+    | "prefer" -> `Prefer
+    | "require" -> `Require
+    | "verify" -> `Verify
+    | _ -> `Prefer in
+             
+  (* SSL Peer *)
+  let peername =
+    match peername with
+    | Some _ -> peername
+    | None -> 
+       try Some (Sys.getenv "PGPEERNAME") with
+       |  Not_found -> host in
+ 
+  (* ca certificates *)
+  let caCertFilename =
+    match caCertFile with
+    | Some filename -> filename
+    | None ->
+       try Sys.getenv "PGCACERTFILE" with
+       | Not_found -> "/etc/ssl/certs/ca-certificates.crt" in
 
   (* Make the socket address. *)
   let sockaddrs =
@@ -990,7 +1051,7 @@ let connect ?host ?port ?user ?password ?database
       ((Unix.times ()).Unix.tms_utime) in
   let uuid = Digest.to_hex (Digest.string uuid) in
 
-  let sock_channels =
+  let sock_channels () =
     let rec create_sock_channels sockaddrs =
       match sockaddrs with
 	[] -> 
@@ -1003,7 +1064,7 @@ let connect ?host ?port ?user ?password ?database
     create_sock_channels sockaddrs in
     
   let do_connect () =
-    sock_channels >>= fun (ichan, chan) ->
+    sock_channels () >>= fun (ichan, chan) ->
 
     (* Create the connection structure. *)
     let conn = { ichan = ichan;
@@ -1012,7 +1073,23 @@ let connect ?host ?port ?user ?password ?database
 		 uuid = uuid } in
 
     (* start TLS *)
-    start_tls conn >>= fun conn -> 
+    (catch (fun () ->
+        start_tls  ~sslmode ~peername ~caCertFile:caCertFilename conn)
+      (function
+       | (Netsys_types.TLS_error error) as exn -> begin
+           fprintf stderr "Have TLS error %s\n" error;
+           if sslmode = `Prefer then begin 
+          flush chan >>= fun () ->
+          close_in ichan >>= fun () ->
+          sock_channels() >>= fun (ichan, chan) ->
+          return { ichan = ichan;
+		 chan = chan;
+		 private_data = None;
+		 uuid = uuid }
+             end
+           else fail exn
+            end))
+    >>= fun conn ->
     (* Send the StartUpMessage.  *)
     let msg = new_start_message () in
     add_int32 msg 196608l;

@@ -80,16 +80,12 @@ module TLS_thread = struct
         ~peer_name
         tls_config in
     let tls_endpoint = tls_ch#tls_endpoint in
-    Printf.fprintf stderr "TLS endpoint really created\n";
     (try 
        tls_ch # flush()(* This enforces the TLS handshake *)
      with
      |  (Netsys_types.TLS_error error) as exn ->
-         if error = "NETTLS_VERIFICATION_FAILED" then
-           if peer_auth = `Required then raise exn
-           else Printf.fprintf stderr "TLS Verification failed, ignoring\n"
-         else Printf.fprintf stderr "TLS error %s occurred\n" error);
-    Printf.fprintf stderr "TLS handshake completed\n";
+         if error <> "NETTLS_VERIFICATION_FAILED" || peer_auth = `Required then 
+           raise exn);
     let ic = Netchannels.lift_in (`Raw (tls_ch :> Netchannels.raw_in_channel)) in
     let oc = Netchannels.lift_out (`Raw (tls_ch :> Netchannels.raw_out_channel)) in
     (ic, oc)

@@ -68,7 +68,6 @@ module TLS_thread = struct
   let close_in ic = ic#close_in()
                
   let tls_init ~peer_name  ~peer_auth ~caCertFile ~ichan ~chan  =
-    try
     Nettls_gnutls.init();
     let tls = Netsys_crypto.current_tls() in
     let tls_config = Netsys_tls.create_x509_config ~trust:[`PEM_file caCertFile ] ~peer_auth tls in
@@ -89,13 +88,6 @@ module TLS_thread = struct
     let ic = Netchannels.lift_in (`Raw (tls_ch :> Netchannels.raw_in_channel)) in
     let oc = Netchannels.lift_out (`Raw (tls_ch :> Netchannels.raw_out_channel)) in
     (ic, oc)
-  with
-  | exn -> begin
-        let msg = Printexc.to_string exn
-        and stack = Printexc.get_backtrace () in
-        Printf.eprintf "there was an error: %s%s\n" msg stack;
-      raise exn
-    end
 end
 module M = PGOCaml_generic.Make (TLS_thread)
 

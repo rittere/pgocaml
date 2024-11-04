@@ -902,30 +902,37 @@ let start_tls  ~sslmode ~peername ~caCertFile = function { ichan = ichan; chan =
         fun () ->
           input_char ichan >>=
         (fun c  ->
-          if c = 'S' then
-            let peer_auth =
-                  if sslmode = `Verify then `Required else `Optional in
+          if c = 'S' then begin
+              let peer_auth =
+                if sslmode = `Verify then `Required else `Optional in
+              if debug_protocol then
                 fprintf stderr "About to start TLS connection\n";
               tls_init ~peer_name:peername ~peer_auth ~caCertFile ~ichan ~chan
-          else if sslmode = `Prefer then return (ichan, chan)
-          else 
-           (fail (Netsys_types.TLS_error "Server does not support TLS connection")))  >>=
+            end
+          else (* server does not support encryption *)
+            if sslmode = `Prefer then return (ichan, chan) 
+            else 
+              (fail (Netsys_types.TLS_error "Server does not support TLS connection")))  >>=
           fun (ic, oc) ->
-          fprintf stderr "tls_init successfully completed\n";
+          if debug_protocol then
+            fprintf stderr "tls_init successfully completed\n";
           return ({ichan = ic; chan = oc; private_data = private_data; uuid = uuid })
       end)
               (function
                | (Netsys_types.TLS_error error) as exn ->
                   if sslmode = `Prefer then begin
-                      fprintf stderr "have TLS error in prefer\n";
+                      if debug_protocol then
+                        fprintf stderr "have TLS error in prefer\n";
                       return conn
                     end
                   else begin
-                      fprintf stderr "TLS_error %s \n" error;
+                      if debug_protocol then
+                        fprintf stderr "TLS_error %s \n" error;
                       fail exn
                     end
                | exn -> begin
-                   fprintf stderr "%s" "Could not establish TLS connection\n";
+                   if debug_protocol then
+                     fprintf stderr "%s" "Could not establish TLS connection\n";
                    fail exn
                  end
               )
@@ -1077,19 +1084,19 @@ let connect ?host ?port ?user ?password ?database ?sslmode ?peername ?caCertFile
         start_tls  ~sslmode ~peername ~caCertFile:caCertFilename conn)
       (function
        | (Netsys_types.TLS_error error) as exn -> begin
-           fprintf stderr "Have TLS error %s\n" error;
+           if debug_protocol then
+             fprintf stderr "Have TLS error %s\n" error;
+           flush chan >>= fun () ->
+           close_in ichan >>= fun () ->
            if sslmode = `Prefer then begin 
-          flush chan >>= fun () ->
-          close_in ichan >>= fun () ->
-          sock_channels() >>= fun (ichan, chan) ->
-          return { ichan = ichan;
-		 chan = chan;
-		 private_data = None;
-		 uuid = uuid }
+               sock_channels() >>= fun (ichan, chan) ->
+               return { ichan = ichan;
+		        chan = chan;
+		        private_data = None;
+		        uuid = uuid }
              end
-           else fail exn
-            end))
-    >>= fun conn ->
+           else fail (Error (sprintf "TLS Error: %s" error))
+         end))  >>= fun conn ->
     (* Send the StartUpMessage.  *)
     let msg = new_start_message () in
     add_int32 msg 196608l;

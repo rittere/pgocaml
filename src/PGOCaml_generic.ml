@@ -1002,7 +1002,8 @@ let connect ?host ?port ?user ?password ?database ?sslmode ?peername ?caCertFile
     | "disable" -> `Disable
     | "prefer" -> `Prefer
     | "require" -> `Require
-    | "verify" -> `Verify
+    | "verify-ca" -> `Verify
+    | "verify-full" -> `Verify
     | _ -> `Prefer in
              
   (* SSL Peer *)

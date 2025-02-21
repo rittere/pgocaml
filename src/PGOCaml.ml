@@ -86,7 +86,7 @@ module TLS_thread = struct
          if error <> "NETTLS_VERIFICATION_FAILED" || peer_auth = `Required then 
            raise exn
          else
-           fprintf stderr "TLS verification failed, ignoring");
+           Printf.fprintf stderr "TLS verification failed, ignoring");
     let ic = Netchannels.lift_in (`Raw (tls_ch :> Netchannels.raw_in_channel)) in
     let oc = Netchannels.lift_out (`Raw (tls_ch :> Netchannels.raw_out_channel)) in
     (ic, oc)

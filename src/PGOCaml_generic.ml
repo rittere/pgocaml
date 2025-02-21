@@ -1085,11 +1085,10 @@ let connect ?host ?port ?user ?password ?database ?sslmode ?peername ?caCertFile
         start_tls  ~sslmode ~peername ~caCertFile:caCertFilename conn)
       (function
        | (Netsys_types.TLS_error error) as exn -> begin
-           if debug_protocol then
-             fprintf stderr "Have TLS error %s\n" error;
            flush chan >>= fun () ->
            close_in ichan >>= fun () ->
-           if sslmode = `Prefer then begin 
+           if sslmode = `Prefer then begin
+               fprintf stderr "Have TLS Error %s, reverting to unencrypted communication" error;
                sock_channels() >>= fun (ichan, chan) ->
                return { ichan = ichan;
 		        chan = chan;

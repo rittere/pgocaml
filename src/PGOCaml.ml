@@ -82,11 +82,11 @@ module TLS_thread = struct
     (try 
        tls_ch # flush()(* This enforces the TLS handshake *)
      with
-     |  (Netsys_types.TLS_error error) as exn ->
+     |  (Netsys_types.TLS_error error) as exn ->  
          if error <> "NETTLS_VERIFICATION_FAILED" || peer_auth = `Required then 
            raise exn
          else
-           Printf.fprintf stderr "TLS verification failed, ignoring");
+           Printf.fprintf stderr "TLS verification failed, ignoring\n");
     let ic = Netchannels.lift_in (`Raw (tls_ch :> Netchannels.raw_in_channel)) in
     let oc = Netchannels.lift_out (`Raw (tls_ch :> Netchannels.raw_out_channel)) in
     (ic, oc)

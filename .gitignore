@@ -4,3 +4,5 @@ setup.data
 setup.log
 *.byte
 *.docdir
+setup.ml.bak
+src/PGOCaml.annot

@@ -30,6 +30,8 @@ module type THREAD = sig
   val fail : exn -> 'a t
   val catch : (unit -> 'a t) -> (exn -> 'a t) -> 'a t
 
+  exception IllegalParameters of string
+
   type in_channel
   type out_channel
   val open_connection : Unix.sockaddr -> (in_channel * out_channel) t
@@ -41,6 +43,7 @@ module type THREAD = sig
   val input_binary_int : in_channel -> int t
   val really_input : in_channel -> Bytes.t -> int -> int -> unit t
   val close_in : in_channel -> unit t
+  val tls_init: peer_name: string option -> verify: ((module Netsys_crypto_types.TLS_ENDPOINT) -> bool -> bool -> bool) -> system_trust: bool -> sslcert: string option  -> sslkey: string option -> sslpassword: string option -> sslcertmode: [ `Disable | `Allow | `Require ] -> sslrootcert: string option -> sslcrl: string option -> peer_auth:[ `None | `Optional | `Required ] -> ichan:in_channel -> chan:out_channel  -> ( in_channel *  out_channel) t
 end
 
 module type PGOCAML_GENERIC =
@@ -53,6 +56,10 @@ type 'a monad
 type isolation = [ `Serializable | `Repeatable_read | `Read_committed | `Read_uncommitted ]
 
 type access = [ `Read_write | `Read_only ]
+
+type sslmode_t = [`Disable |  `Prefer | `Require | `VerifyCA | `VerifyFull ]
+
+type sslcertmode_t = [`Disable |  `Allow | `Require ]
 
 exception Error of string
 (** For library errors. *)
@@ -71,10 +78,18 @@ type connection_desc = {
   port: int;
   password: string;
   host: [ `Hostname of string | `Unix_domain_socket_dir of string];
-  database: string
+  database: string;
+  peername: string option;
+  sslmode: sslmode_t;
+  sslcert: string option;
+  sslkey: string option;
+  sslpassword: string option;
+  sslcertmode: sslcertmode_t;
+  sslrootcert: string option;
+  sslcrl: string option;
 }
 
-val describe_connection : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?unix_domain_socket_dir:string -> unit -> connection_desc
+val describe_connection : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?peername:string  -> ?sslmode:string -> ?sslcert:string -> ?sslkey:string -> ?sslpassword:string -> ?sslcertmode:string -> ?sslrootcert:string -> ?sslcrl: string -> ?unix_domain_socket_dir:string -> unit -> connection_desc
 (** Produce the actual, concrete connection parameters based on the values and
   * availability of the various configuration variables.
   *)
@@ -85,10 +100,12 @@ val connection_desc_to_string : connection_desc -> string
   * for logging and error reporting purposes.
   *)
 
-val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?unix_domain_socket_dir:string -> ?desc:connection_desc -> unit -> 'a t monad
-(** Connect to the database.  The normal [$PGDATABASE], etc. environment
-  * variables are available.
-  *)
+val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?peername:string  -> ?sslmode:string -> ?sslcert:string -> ?sslkey:string -> ?sslpassword:string -> ?sslcertmode:string -> ?sslrootcert:string -> ?sslcrl:string -> ?unix_domain_socket_dir:string -> ?desc:connection_desc -> unit -> 'a t monad
+(** Connect to the database.
+
+    The normal [$PGDATABASE], etc. environment variables are available. *)
+
+
 
 val close : 'a t -> unit monad
 (** Close the database handle.  You must call this after you have
@@ -385,12 +402,24 @@ module Make (Thread : THREAD) = struct
 
 open Thread
 
+type sslmode_t = [`Disable |  `Prefer | `Require | `VerifyCA | `VerifyFull ]
+
+type sslcertmode_t = [`Disable |  `Allow | `Require ]
+
 type connection_desc = {
   user: string;
   port: int;
   password: string;
   host: [ `Hostname of string | `Unix_domain_socket_dir of string];
-  database: string
+  database: string;
+  peername: string option;
+  sslmode: sslmode_t;
+  sslcert: string option;
+  sslkey: string option;
+  sslpassword: string option;
+  sslcertmode: sslcertmode_t;
+  sslrootcert: string option;
+  sslcrl: string option;
 }
 
 type 'a t = {
@@ -405,6 +434,7 @@ type 'a monad = 'a Thread.t
 type isolation = [ `Serializable | `Repeatable_read | `Read_committed | `Read_uncommitted ]
 
 type access = [ `Read_write | `Read_only ]
+
 
 exception Error of string
 
@@ -426,6 +456,10 @@ let new_start_message () =
   let buf = Buffer.create 128 in
   buf, None
 
+let new_tls_message() =
+  let buf = Buffer.create 128 in
+  buf, None
+  
 let add_byte (buf, _) i =
   (* Deliberately throw an exception if i isn't [0..255]. *)
   Buffer.add_char buf (Char.chr i)
@@ -1007,11 +1041,111 @@ let profile_op uuid op detail f =
 
 (*----- Connection. -----*)
 
+let start_tls  ~peername ~sslmode ~sslcert ~sslkey ~sslpassword ~sslcertmode ~sslrootcert ~sslcrl = function { ichan = ichan; chan = chan; private_data = private_data; uuid= uuid } as conn ->
+    catch (fun () ->                                                  
+    if sslmode = `Disable then return conn
+    else begin
+        let msg = new_tls_message () in
+        add_int32 msg 80877103l;
+        send_message conn msg >>=
+        fun () ->
+          flush chan >>=
+        fun () ->
+          input_char ichan >>=
+        (fun c  ->
+          if c = 'S' then begin
+              let verifyFun =
+                if sslmode = `VerifyFull then
+                  (fun _ cert_ok name_ok -> cert_ok && name_ok)
+                else if sslmode = `VerifyCA || (sslmode = `Require && sslrootcert <> None) then
+                  (fun _ cert_ok _ -> cert_ok)
+                else (fun _ _ _ -> true) in
+              let system_trust =
+                sslrootcert = Some "system" in
+              let peer_auth =
+                if sslmode = `VerifyCA || sslmode = `VerifyFull || (sslmode = `Require && sslrootcert <> None) then
+                  `Required
+                else `Optional in
+              if debug_protocol then
+                eprintf "About to start TLS connection\n";
+              tls_init ~peer_name:peername ~verify:verifyFun ~system_trust ~sslcert ~sslkey ~sslpassword ~sslcertmode ~sslrootcert ~sslcrl ~peer_auth ~ichan ~chan
+            end
+          else (* server does not support encryption *)
+            if sslmode = `Prefer then return (ichan, chan) 
+            else 
+              (fail (Netsys_types.TLS_error "Server does not support TLS connection")))  >>=
+          fun (ic, oc) ->
+          if debug_protocol then
+            eprintf "tls_init successfully completed\n";
+          return ({ichan = ic; chan = oc; private_data = private_data; uuid = uuid })
+      end)
+              (function
+               | (Netsys_types.TLS_error error) as exn ->
+                  if sslmode = `Prefer then begin
+                      if debug_protocol then
+                        eprintf "TLS error %s, continuing without TLS connection\n" error;
+                      return conn
+                    end
+                  else begin
+                      if debug_protocol then
+                        eprintf "TLS_error %s \n" error;
+                      fail exn
+                    end
+               | (IllegalParameters error) as exn -> 
+                  if sslmode = `Prefer then begin
+                      eprintf "TLS error %s, continuing without TLS connection\n" error;
+                      return conn
+                    end
+                  else begin
+                      eprintf "TLS error %s\n" error;
+                      fail exn
+                    end
+               | exn -> begin
+                   if debug_protocol then begin
+                       eprintf "Could not establish TLS connection, error is %s\n;" (Printexc.to_string exn)
+                       end;
+                   fail exn
+                 end
+              )
+             
+
 let pgsql_socket dir port =
   let sockaddr = sprintf "%s/.s.PGSQL.%d" dir port in
   Unix.ADDR_UNIX sockaddr
 
-let describe_connection ?host ?port ?user ?password ?database
+let describe_sslmode sslmode =
+    match sslmode with
+     | `Disable -> "disable"
+     | `Prefer -> "prefer"
+     | `Require -> "require"
+     | `VerifyCA -> "verify-ca"
+     | `VerifyFull -> "verify-full"
+
+let describe_sslcertmode sslcertmode =
+    match sslcertmode with
+     | `Disable -> "disable"
+     | `Allow -> "allow"
+     | `Require -> "require"
+
+let getParameter ?specialValue programValue environmentVariable defaultFilename =
+    match programValue with
+    | _ when programValue = specialValue && specialValue <> None -> specialValue
+    | Some filename -> 
+       if Sys.file_exists filename then programValue else  None
+    | None ->
+       try
+         let filename = Sys.getenv environmentVariable in
+         if filename = "" then
+           let filename = (Sys.getenv "HOME") ^ defaultFilename  in
+           if Sys.file_exists filename then Some filename else None 
+         else if Some filename = specialValue then specialValue 
+         else if Sys.file_exists filename then Some filename else None
+       with
+       | Not_found ->
+          let filename = (Sys.getenv "HOME") ^ defaultFilename in
+          if Sys.file_exists filename then Some filename else None 
+
+let describe_connection ?host ?port ?user ?password ?database ?peername ?sslmode  ?sslcert ?sslkey ?sslpassword ?sslcertmode ?sslrootcert ?sslcrl
     ?(unix_domain_socket_dir)
     () =
   (* Get the username. *)
@@ -1074,24 +1208,85 @@ let describe_connection ?host ?port ?user ?password ?database
 	    try int_of_string (Sys.getenv "PGPORT")
 	    with Not_found | Failure _ -> PGOCaml_config.default_port
   in
-  { user; host; port; database; password }
+
+  (* SSL Peer *)
+  let peername =
+    match peername with
+    | Some _ -> peername
+    | None -> 
+       try Some (Sys.getenv "PGPEERNAME") with
+       |  Not_found -> begin
+           match host with
+           | `Hostname hostname -> Some hostname
+           | _ -> Some "localhost"
+         end in
+
+    (* ssl connection *)  
+  let sslmode =
+    let sslmodeText = 
+      match sslmode with
+      | Some sslmodeText -> sslmodeText
+      | None ->
+         try Sys.getenv "PGSSLMODE" with
+         | Not_found -> "prefer" in
+    match sslmodeText with
+    | "disable" -> `Disable
+    | "prefer" -> `Prefer
+    | "require" -> `Require
+    | "verify-ca" -> `VerifyCA
+    | "verify-full" -> `VerifyFull
+    | _ -> `Prefer in
+
+  let sslcert = getParameter sslcert "PGSSLCERT" "/.postgresql/postgresql.crt" in
+  let sslkey = getParameter sslkey "PGSSLKEY" "/.postgresql/postgresql.key" in
+  let sslcertmode =
+    let sslcertmodeText = 
+      match sslcertmode with
+      | Some sslcertmodeText -> sslcertmodeText
+      | None ->
+         try Sys.getenv "PGSSLCERTMODE" with
+         | Not_found -> "allow" in
+    match sslcertmodeText with
+    | "disable" -> `Disable
+    | "allow" -> `Allow
+    | "require" -> `Require
+    | _ -> `Allow in
+  let sslrootcert= getParameter ?specialValue:(Some "system") sslrootcert "PGSSLROOTCERT" "/.postgresql/root.crt" in
+  let sslcrl = getParameter sslcrl "PGSSLCRL" "/.postgresql/root.crl" in
+  
+  { user; host; port; database; password; peername; sslmode;  sslcert; sslkey; sslpassword; sslcertmode; sslrootcert; sslcrl}
+
+let printKey s =
+  match s with
+  | None -> ""
+  | Some s -> s
 
 (** We need to convert keys to a human-readable format for error reporting.
   *)
 let connection_desc_to_string key =
   Printf.sprintf
-    "host=%s, port=%s, user=%s, password=%s, database=%s"
+    "host=%s, port=%s, user=%s, password=%s, database=%s, peername=%s, sslmode=%s, sslcert=%s, sslkey=%s, sslpassword=%s, sslmode=%s, sslrootcert=%s, sslcrl=%s"
     (match key.host with `Unix_domain_socket_dir _ -> "unix" | `Hostname s -> s)
     (string_of_int key.port)
     key.user
     "*****" (* we don't want to be dumping passwords into error logs *)
     key.database
+    (printKey key.peername)
+    (describe_sslmode key.sslmode)
+    (printKey key.sslcert)
+    (printKey key.sslkey)
+    "*****" (* we don't want to be dumping passwords into error logs *)
+    (describe_sslcertmode key.sslcertmode)
+    (printKey key.sslrootcert)
+    (printKey key.sslcrl)
 
-let connect ?host ?port ?user ?password ?database ?unix_domain_socket_dir ?desc
+
+
+let connect ?host ?port ?user ?password ?database ?peername ?sslmode ?sslcert ?sslkey ?sslpassword ?sslcertmode ?sslrootcert ?sslcrl ?unix_domain_socket_dir ?desc
     () =
-  let { user; host; port; database; password } =
+  let { user; host; port; database; password; peername; sslmode; sslcert; sslkey; sslpassword; sslcertmode; sslrootcert; sslcrl } =
     match desc with
-    | None -> describe_connection ?host ?port ?user ?password ?database ?unix_domain_socket_dir ()
+    | None -> describe_connection ?host ?port ?user ?password ?database ?peername ?sslmode ?sslcert ?sslkey ?sslpassword ?sslcertmode ?sslrootcert ?sslcrl ?unix_domain_socket_dir ()
     | Some desc -> desc
   in
   (* Make the socket address. *)
@@ -1128,7 +1323,7 @@ let connect ?host ?port ?user ?password ?database ?unix_domain_socket_dir ?desc
       ((Unix.times ()).Unix.tms_utime) in
   let uuid = Digest.to_hex (Digest.string uuid) in
 
-  let sock_channels =
+  let sock_channels() =
     let rec create_sock_channels sockaddrs =
       match sockaddrs with
 	[] ->
@@ -1144,7 +1339,7 @@ let connect ?host ?port ?user ?password ?database ?unix_domain_socket_dir ?desc
     create_sock_channels sockaddrs in
 
   let do_connect () =
-    sock_channels >>= fun (ichan, chan) ->
+    sock_channels() >>= fun (ichan, chan) ->
     catch (fun () ->
     (* Create the connection structure. *)
     let conn = { ichan = ichan;
@@ -1152,7 +1347,26 @@ let connect ?host ?port ?user ?password ?database ?unix_domain_socket_dir ?desc
 		 private_data = None;
 		 uuid = uuid } in
 
-    (* Send the StartUpMessage.  NB. At present we do not support SSL. *)
+    (* start TLS *)
+    (catch (fun () ->
+        start_tls   ~peername ~sslmode ~sslcert ~sslkey ~sslpassword ~sslcertmode ~sslrootcert ~sslcrl conn)
+      (function
+       | Netsys_types.TLS_error error -> begin
+           flush chan >>= fun () ->
+           close_in ichan >>= fun () ->
+           if sslmode = `Prefer then begin
+               fprintf stderr "Have TLS Error %s, reverting to unencrypted communication" error;
+               sock_channels() >>= fun (ichan, chan) ->
+               return { ichan = ichan;
+		        chan = chan;
+		        private_data = None;
+		        uuid = uuid }
+             end
+           else fail (Error (sprintf "TLS Error: %s" error))
+         end
+       | _ -> fail (Error "Error creating TLS connection"))) >>= fun conn ->
+    
+    (* Send the StartUpMessage. *)
     let msg = new_start_message () in
     add_int32 msg 196608l;
     add_string msg "user"; add_string msg user;
@@ -1234,7 +1448,22 @@ let connect ?host ?port ?user ?password ?database ?unix_domain_socket_dir ?desc
     "database"; database;
     "host"; begin match host with `Unix_domain_socket_dir _ -> "unix" | `Hostname s -> s end;
     "port"; string_of_int port;
-    "prog"; Sys.executable_name
+    "prog"; Sys.executable_name;
+    "peername";
+    (match peername with
+     | Some peername -> peername
+     | None -> "");
+    "sslmode"; (describe_sslmode sslmode);
+    "sslcert";
+     (match sslcert with
+     | Some cert -> cert
+     | None -> "");
+     "sslkey"; (printKey sslkey);
+     "sslcertmod"; (describe_sslcertmode sslcertmode);
+     "sslrootcert";
+     (match sslrootcert with
+      | Some cert -> cert
+      | None -> "")
   ] in
   profile_op uuid "connect" detail do_connect
 

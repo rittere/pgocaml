@@ -46,9 +46,29 @@ to connect to your database both at compile-time and at runtime.
 | `PGUSER`      | The username of the current user, or `postgres` if that can't be found. | |
 | `PGDATABASE`  | falls back on `PGUSER` | |
 | `PGPASSWORD`  | empty string  | |
+| `PGSSLMODE`	| prefer	| Indicates whether or with what  priority a TLS connection with the server will be established.|
+| `PGSSLCERT`   | ~/.postgresql/postgresql.crt | File name of client  SSL certificate |
+| `PGSSLKEY`	| ~/.postgresql/postgresql.key | File name of secret key of client certificate |
+| `PGSSLPASSWORD` | empty string | Password for the secret key |
+| `PGSSLCERTMOE` |allow	| Indicates whether a client certificate may be sent to the server, and whether the server is required to request one. |
+| `PGSSLROOTCERT` |  ~/.postgresql/root.crt | Filename containing SSL certificate used to verify the server certificate. If the value is `system`, the trusted CA roots from TLS implementation will be loaded.  | 
+| `PGSSLCRL` | ~/.postgresql/root.crl | Filename of the server certificate revocation list |
 | `PGPROFILING` | no profiling  | Indicates the file to write profiling information to. If it doesn't exist, don't profile |
 | `COMMENT_SRC_LOC` | `no`      | If set to `yes`, `1`, or `on`, PG'OCaml will append a comment to each query indicating where it appears in the OCaml source code. This can be useful for logging. |
 | `PGCUSTOM_CONVERTERS_CONFIG` | nothing | Points to a file containing custom type conversions |
+
+* The variable `PGSSLMODE` may have the following values:
+- `disable`: only try a non-TLS connection
+- `prefer`: first try a TLS connection; if that fails, try a non-TLS connection
+- `require`: only try a TLS connection. If a root CA file is present, verify the certificate in the same way as if verify-ca was specified
+- `verify-ca`: only try a TLS connection, and verify that the server certificate is issued by a trusted certificate authority (CA)
+- `verify-full`: only try a TLS connection, verify that the server certificate is issued by a trusted CA and that the requested server host name matches that in the certificate
+
+* The variable `PGSSLMODE` may have the following values:
+- `disable`: A client certificate is never sent, even if one is
+available.
+- `allow`: A certificate may be sent, if the client has one to send.
+- `require`: The server must request a certificate. The connection will fail if the client does not send a certificate and the server successfully authenticates the client anyway.
 
 # Using the PPX
 

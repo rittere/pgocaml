@@ -19,7 +19,7 @@
 (library
   (name PGOCaml)
   (public_name pgocaml)
-  (libraries calendar csv hex re rresult sexplib unix camlp-streams
+  (libraries calendar csv hex re rresult sexplib unix camlp-streams netstring nettls-gnutls
     (select scram.ml from
       (base64 digestif -> scram.optional.ml)
       (-> scram.dummy.ml)))

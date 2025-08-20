@@ -82,7 +82,8 @@ let get_connection ~loc key =
         Rresult.Ok dbh
       with
         | err ->
-          Error ("Could not make the connection "
+           Error ("Could not make
+                   the connection "
             ^ PGOCaml.connection_desc_to_string key
             ^ ", error: "
             ^ Printexc.to_string err
@@ -187,6 +188,13 @@ let parse_flags flags loc =
   let user = ref None in
   let password = ref None in
   let database = ref None in
+  let peername = ref None in
+  let sslmode = ref None in
+  let sslcert = ref None in
+  let sslkey = ref None in
+  let sslpassword = ref None in
+  let sslrootcert = ref None in
+  let sslcrl = ref None in
   let unix_domain_socket_dir = ref None in
   let comment_src_loc = ref (PGOCaml.comment_src_loc ()) in
   let show = ref None in
@@ -211,6 +219,27 @@ let parse_flags flags loc =
     | str when String.starts_with str "database=" ->
         let database' = String.sub str 9 (String.length str - 9) in
         database := Some database'
+    | str when String.starts_with str "peername=" ->
+        let peername' = String.sub str 9 (String.length str - 9) in
+        peername := Some peername'
+    | str when String.starts_with str "sslmode=" ->
+        let sslmode' = String.sub str 8 (String.length str - 8) in
+        sslmode := Some sslmode'
+    | str when String.starts_with str "sslcert=" ->
+        let sslcert' = String.sub str 8  (String.length str - 8) in
+        sslcert := Some sslcert'
+    | str when String.starts_with str "sslkey=" ->
+        let sslkey' = String.sub str 7  (String.length str - 7) in
+        sslkey := Some sslkey'
+    | str when String.starts_with str "sslpassword=" ->
+        let sslpassword' = String.sub str 12 (String.length str - 12) in
+        sslpassword := Some sslpassword'
+    | str when String.starts_with str "sslrootcert=" ->
+        let sslrootcert' = String.sub str  12 (String.length str - 12) in
+        sslrootcert := Some sslrootcert'
+    | str when String.starts_with str "sslcrl=" ->
+        let sslcrl' = String.sub str 7 (String.length str - 7) in
+        sslcrl := Some sslcrl'
     | str when String.starts_with str "unix_domain_socket_dir=" ->
         let socket = String.sub str 23 (String.length str - 23) in
         unix_domain_socket_dir := Some socket
@@ -239,8 +268,15 @@ let parse_flags flags loc =
   let password = !password in
   let database = !database in
   let port = !port in
+  let peername = !peername in
+  let sslmode = !sslmode in
+  let sslcert = !sslcert in
+  let sslkey = !sslkey in
+  let sslpassword = !sslpassword in
+  let sslrootcert = !sslrootcert in
+  let sslcrl = !sslcrl in
   let unix_domain_socket_dir = !unix_domain_socket_dir in
-  let key = PGOCaml.describe_connection ?host ?user ?password ?database ?port ?unix_domain_socket_dir () in
+  let key = PGOCaml.describe_connection ?host ?user ?password ?database ?port  ?peername ?sslmode  ?sslcert ?sslkey ?sslpassword ?sslrootcert ?sslcrl ?unix_domain_socket_dir () in
   key, f_execute, f_nullable_results, !comment_src_loc, !show, !load_custom_from
 
 let mk_conversions ?load_custom_from ~loc ~dbh results =
@@ -330,7 +366,7 @@ let pgsql_expand ~genobject ?(flags = []) loc dbh query =
    * ["select id from employees where name = "; "$name"; " and salary > ";
    * "$salary"].
    * Actually it's a wee bit more complicated than that ...
-  *)
+   *)
   let split =
     let f = function
       | `Text text -> `Text text

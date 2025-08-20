@@ -28,4 +28,6 @@ depends: [
   "ppx_deriving" {>= "4.2"}
   "rresult"
   "sexplib"
+  "conf-gnutls"
+  "ocamlnet"
 ]

@@ -30,6 +30,8 @@ module type THREAD = sig
   val fail : exn -> 'a t
   val catch : (unit -> 'a t) -> (exn -> 'a t) -> 'a t
 
+  exception IllegalParameters of string
+
   type in_channel
   type out_channel
   val open_connection : Unix.sockaddr -> (in_channel * out_channel) t
@@ -41,6 +43,7 @@ module type THREAD = sig
   val input_binary_int : in_channel -> int t
   val really_input : in_channel -> Bytes.t -> int -> int -> unit t
   val close_in : in_channel -> unit t
+  val tls_init: peer_name: string option -> verify: ((module Netsys_crypto_types.TLS_ENDPOINT) -> bool -> bool -> bool) -> system_trust: bool -> sslcert: string option -> sslkey: string option -> sslpassword: string option -> sslcertmode: [ `Disable | `Allow | `Require ] -> sslrootcert: string option -> sslcrl: string option -> peer_auth:[ `None | `Optional | `Required ] -> ichan:in_channel -> chan:out_channel  -> ( in_channel *  out_channel) t
 end
 
 module type PGOCAML_GENERIC =
@@ -53,6 +56,10 @@ type 'a monad
 type isolation = [ `Serializable | `Repeatable_read | `Read_committed | `Read_uncommitted ]
 
 type access = [ `Read_write | `Read_only ]
+
+type sslmode_t = [`Disable |  `Prefer | `Require | `VerifyCA | `VerifyFull]
+
+type sslcertmode_t = [`Disable |  `Allow | `Require ]
 
 exception Error of string
 (** For library errors. *)
@@ -72,10 +79,18 @@ type connection_desc = {
   port: int;
   password: string;
   host: [ `Hostname of string | `Unix_domain_socket_dir of string];
-  database: string
+  database: string;
+  peername: string option;
+  sslmode: sslmode_t;
+  sslcert: string option;
+  sslkey: string option;
+  sslpassword: string option;
+  sslcertmode: sslcertmode_t;
+  sslrootcert: string option;
+  sslcrl: string option
 }
 
-val describe_connection : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?unix_domain_socket_dir:string -> unit -> connection_desc
+val describe_connection : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?peername:string  -> ?sslmode:string -> ?sslcert:string -> ?sslkey:string -> ?sslpassword:string -> ?sslcertmode:string -> ?sslrootcert:string -> ?sslcrl: string -> ?unix_domain_socket_dir:string -> unit -> connection_desc
 (** Produce the actual, concrete connection parameters based on the values and
   * availability of the various configuration variables.
   *)
@@ -86,7 +101,7 @@ val connection_desc_to_string : connection_desc -> string
   * for logging and error reporting purposes.
   *)
 
-val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?unix_domain_socket_dir:string -> ?desc:connection_desc -> unit -> 'a t monad
+val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?database:string -> ?peername:string  -> ?sslmode:string -> ?sslcert:string -> ?sslkey:string -> ?sslpassword:string -> ?sslcertmode:string -> ?sslrootcert:string -> ?sslcrl: string -> ?unix_domain_socket_dir:string -> ?desc:connection_desc -> unit -> 'a t monad
 (** Connect to the database.
 
     The normal [$PGDATABASE], etc. environment variables are available. *)
@@ -94,7 +109,7 @@ val connect : ?host:string -> ?port:int -> ?user:string -> ?password:string -> ?
 val close : 'a t -> unit monad
 (** Close the database handle.
 
-    You must call this after you have finished with the handle, or else
+    You must call this af44ter you have finished with the handle, or else
     you will get leaked file descriptors. *)
 
 val ping : 'a t -> unit monad
@@ -195,9 +210,9 @@ type pa_pg_data = (string, bool) Hashtbl.t
 
 type oid = int32 [@@deriving show]
 
-type param = string option (* None is NULL. *)
-type result = string option (* None is NULL. *)
-type row = result list (* One row is a list of fields. *)
+type param = string option (** None is NULL. *)
+type result = string option (** None is NULL. *)
+type row = result list (** One row is a list of fields. *)
 
 val prepare : 'a t -> query:string -> ?name:string -> ?types:oid list -> unit -> unit monad
 (** [prepare conn ~query ?name ?types ()] prepares the statement
@@ -254,8 +269,10 @@ type result_description = {
   field_type : oid;			(** The type of the field. *)
   length : int;				(** Length of the field. *)
   modifier : int32;			(** Type modifier. *)
-}[@@deriving show]
+  } [@@deriving show]
+
 type row_description = result_description list [@@deriving show]
+
 
 type params_description = param_description list
 and param_description = {
@@ -379,7 +396,6 @@ val arbitrary_array_of_string : (string -> 'a) -> string -> 'a option list
 
 val bind : 'a monad -> ('a -> 'b monad) -> 'b monad
 val return : 'a -> 'a monad
-
 end
 
 
